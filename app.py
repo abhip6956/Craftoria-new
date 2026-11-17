@@ -73,9 +73,9 @@ def init_db():
     if count == 0:
         samples = [
             ("Crochet Ballerina Doll", 500, "A colourful collection of creative art.", "photos/pic1.jpeg"),
-            ("Crochet Daisy Flower Pot", 300, "A unique accent for your home.", "photos/Crochet Flower Pot.jpeg"),
+            ("Crochet Daisy Flower Pot", 300, "A unique accent for your home.", "photos/pic2.jpeg"),
             ("Mini Crochet Flower Basket", 250, "A special gift for someone special.", "photos/pic3.jpeg"),
-            ("Crochet Peacock Feather Hanging", 100, "A thoughtful handmade art piece.", "photos/crochet Morpankh.jpeg"),
+            ("Crochet Peacock Feather Hanging", 100, "A thoughtful handmade art piece.", "photos/pic4.jpeg"),
         ]
         connection.executemany(
             "INSERT INTO products (name, price, description, image) VALUES (?, ?, ?, ?)", samples
