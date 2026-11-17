@@ -4,8 +4,16 @@ from functools import wraps
 from werkzeug.security import generate_password_hash, check_password_hash
 from flask import Flask, render_template, request, redirect, url_for, session, flash, abort
 
+try:
+    import psycopg2
+    import psycopg2.extras
+except ImportError:
+    psycopg2 = None
+
 app = Flask(__name__)
 app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "change-this-secret-before-deployment")
+
+DATABASE_URL = os.environ.get("DATABASE_URL")
 default_db = "/tmp/craftoria.db" if os.environ.get("VERCEL") else "craftoria.db"
 DB_PATH = os.environ.get("DATABASE_PATH", default_db)
 
@@ -13,14 +21,50 @@ MANAGER_ID = os.environ.get("MANAGER_ID", "admin")
 MANAGER_PASSWORD = os.environ.get("MANAGER_PASSWORD", "Craftoria@123")
 
 
+class DBWrapper:
+    """SQLite aur PostgreSQL dono ko support karta hai taaki Vercel par orders reset na hon"""
+    def __init__(self):
+        self.is_pg = bool(DATABASE_URL and psycopg2)
+        if self.is_pg:
+            self.conn = psycopg2.connect(DATABASE_URL, cursor_factory=psycopg2.extras.RealDictCursor)
+        else:
+            self.conn = sqlite3.connect(DB_PATH)
+            self.conn.row_factory = sqlite3.Row
+
+    def execute(self, query, params=()):
+        if self.is_pg:
+            pg_query = query.replace("?", "%s")
+            cur = self.conn.cursor()
+            if pg_query.strip().upper().startswith("INSERT") and "RETURNING" not in pg_query.upper():
+                pg_query = pg_query.rstrip().rstrip(";") + " RETURNING id"
+                cur.execute(pg_query, params)
+                row = cur.fetchone()
+                cur.lastrowid = row["id"] if row else None
+                return cur
+            cur.execute(pg_query, params)
+            return cur
+        return self.conn.execute(query, params)
+
+    def executemany(self, query, seq):
+        if self.is_pg:
+            pg_query = query.replace("?", "%s")
+            cur = self.conn.cursor()
+            cur.executemany(pg_query, seq)
+            return cur
+        return self.conn.executemany(query, seq)
+
+    def commit(self):
+        self.conn.commit()
+
+    def close(self):
+        self.conn.close()
+
+
 def db():
-    connection = sqlite3.connect(DB_PATH)
-    connection.row_factory = sqlite3.Row
-    return connection
+    return DBWrapper()
 
 
 def clean_image_path(image_path):
-    """Agar user galti se C:\\...\\static\\photos\\img.jpg daale toh use clean karke photos/img.jpg banata hai"""
     if not image_path:
         return ""
     image_path = image_path.strip()
@@ -34,42 +78,48 @@ def clean_image_path(image_path):
 
 def init_db():
     connection = db()
-    connection.executescript("""
+    id_col = "SERIAL PRIMARY KEY" if connection.is_pg else "INTEGER PRIMARY KEY AUTOINCREMENT"
+    connection.execute(f"""
     CREATE TABLE IF NOT EXISTS users (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        id {id_col},
         name TEXT NOT NULL,
         email TEXT NOT NULL UNIQUE,
         password_hash TEXT NOT NULL
-    );
+    )
+    """)
+    connection.execute(f"""
     CREATE TABLE IF NOT EXISTS products (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        id {id_col},
         name TEXT NOT NULL,
         price REAL NOT NULL,
         description TEXT DEFAULT '',
         image TEXT DEFAULT ''
-    );
+    )
+    """)
+    connection.execute(f"""
     CREATE TABLE IF NOT EXISTS orders (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        id {id_col},
         user_id INTEGER NOT NULL,
         customer_name TEXT NOT NULL,
         phone TEXT NOT NULL,
         address TEXT NOT NULL,
         total REAL NOT NULL,
         status TEXT NOT NULL DEFAULT 'Received',
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        FOREIGN KEY(user_id) REFERENCES users(id)
-    );
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
+    connection.execute(f"""
     CREATE TABLE IF NOT EXISTS order_items (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        id {id_col},
         order_id INTEGER NOT NULL,
         product_id INTEGER,
         product_name TEXT NOT NULL,
         price REAL NOT NULL,
-        quantity INTEGER NOT NULL,
-        FOREIGN KEY(order_id) REFERENCES orders(id)
-    );
+        quantity INTEGER NOT NULL
+    )
     """)
-    count = connection.execute("SELECT COUNT(*) FROM products").fetchone()[0]
+    row = connection.execute("SELECT COUNT(*) AS cnt FROM products").fetchone()
+    count = row["cnt"] if isinstance(row, dict) else row[0]
     if count == 0:
         samples = [
             ("Crochet Ballerina Doll", 500, "A colourful collection of creative art.", "photos/pic1.jpeg"),
@@ -145,7 +195,7 @@ def register():
             session["cart"] = session.get("cart", {})
             flash("Account created successfully.")
             return redirect(url_for("home"))
-        except sqlite3.IntegrityError:
+        except Exception:
             flash("This email is already registered. Please log in.")
         finally:
             connection.close()
@@ -296,9 +346,17 @@ def manager_login():
 def manager():
     connection = db()
     products = connection.execute("SELECT * FROM products ORDER BY id DESC").fetchall()
-    orders = connection.execute("SELECT * FROM orders ORDER BY id DESC LIMIT 10").fetchall()
+    # Naya order sabse upar aayega aur saare orders (Completed bhi) dikhenge jab tak delete na hon
+    orders = connection.execute("SELECT * FROM orders ORDER BY id DESC").fetchall()
+    order_items_rows = connection.execute("SELECT * FROM order_items").fetchall()
     connection.close()
-    return render_template("manager.html", products=products, orders=orders)
+
+    items_by_order = {}
+    for item in order_items_rows:
+        oid = item["order_id"]
+        items_by_order.setdefault(oid, []).append(item)
+
+    return render_template("manager.html", products=products, orders=orders, items_by_order=items_by_order)
 
 
 @app.route("/manager/product/add", methods=["POST"])
@@ -378,6 +436,18 @@ def update_order_status(order_id):
     connection.commit()
     connection.close()
     flash("Order status updated.")
+    return redirect(url_for("manager"))
+
+
+@app.route("/manager/order/<int:order_id>/delete", methods=["POST"])
+@manager_required
+def delete_order(order_id):
+    connection = db()
+    connection.execute("DELETE FROM order_items WHERE order_id = ?", (order_id,))
+    connection.execute("DELETE FROM orders WHERE id = ?", (order_id,))
+    connection.commit()
+    connection.close()
+    flash("Order deleted.")
     return redirect(url_for("manager"))
 
 
