@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}Checkout | Craftoria.love{% endblock %}
+{% block content %}
+<section class="form-section"><div class="form-card wide">
+  <p class="eyebrow">ALMOST YOURS</p><h1>Delivery details</h1>
+  <div class="order-summary"><h3>Order total: ₹{{ "%.2f"|format(total) }}</h3>{% for product, quantity, subtotal in items %}<p>{{ product.name }} × {{ quantity }} — ₹{{ "%.2f"|format(subtotal) }}</p>{% endfor %}</div>
+  <form method="post">
+    <label>Full name<input name="customer_name" required value="{{ session.get('user_name','') }}"></label>
+    <label>Phone number<input name="phone" required inputmode="tel" pattern="[0-9+ -]{8,15}"></label>
+    <label>Full delivery address<textarea name="address" required rows="4"></textarea></label>
+    <p class="muted">Payment: Cash on Delivery / offline arrangement. Online payments are not enabled yet.</p>
+    <button class="btn" type="submit">Place order</button>
+  </form>
+</div></section>
+{% endblock %}

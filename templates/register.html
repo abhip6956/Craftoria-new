@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block title %}Create account | Craftoria.love{% endblock %}
+{% block content %}
+<section class="form-section"><form class="form-card" method="post">
+  <p class="eyebrow">JOIN OUR COMMUNITY</p><h1>Create your account</h1>
+  <label>Your name<input name="name" required maxlength="100" autocomplete="name"></label>
+  <label>Email address<input type="email" name="email" required autocomplete="email"></label>
+  <label>Password (at least 8 characters)<input type="password" name="password" required minlength="8" autocomplete="new-password"></label>
+  <button class="btn" type="submit">Create account</button>
+  <p class="muted">Already registered? <a href="{{ url_for('login') }}">Log in</a></p>
+</form></section>
+{% endblock %}

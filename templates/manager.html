@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}Manager dashboard | Craftoria.love{% endblock %}
+{% block content %}
+<section class="section">
+  <div class="manager-top"><div><p class="eyebrow">STORE CONTROL</p><h1>Manager dashboard</h1></div><a class="btn btn-outline" href="{{ url_for('manager_logout') }}">Log out</a></div>
+  <div class="admin-grid">
+    <form class="form-card" method="post" action="{{ url_for('add_product') }}">
+      <h2>Add a product</h2>
+      <label>Product name<input name="name" required></label>
+      <label>Price in ₹<input type="number" name="price" min="1" step="0.01" required></label>
+      <label>Description<textarea name="description" rows="3"></textarea></label>
+      <label>Image URL<input type="url" name="image" placeholder="https://..."></label>
+      <button class="btn" type="submit">Add product</button>
+    </form>
+    <div><h2>Products ({{ products|length }})</h2>
+      {% for product in products %}
+      <div class="admin-row"><div><strong>{{ product.name }}</strong><p>₹{{ "%.2f"|format(product.price) }}</p></div>
+        <div class="admin-actions"><a class="text-link" href="{{ url_for('edit_product', product_id=product.id) }}">Edit</a>
+          <form method="post" action="{{ url_for('delete_product', product_id=product.id) }}" onsubmit="return confirm('Delete this product?')"><button class="danger-link">Delete</button></form>
+        </div>
+      </div>
+      {% else %}<p>No products yet.</p>{% endfor %}
+    </div>
+  </div>
+  <h2 class="subheading">Recent customer orders</h2>
+  {% for order in orders %}
+  <div class="admin-row order-admin"><div><strong>Order #{{ order.id }} · {{ order.customer_name }}</strong><p>{{ order.phone }} · ₹{{ "%.2f"|format(order.total) }} · {{ order.created_at }}</p><p>{{ order.address }}</p></div>
+    <form method="post" action="{{ url_for('update_order_status', order_id=order.id) }}"><select name="status">{% for status in ['Received','Processing','Shipped','Completed','Cancelled'] %}<option value="{{ status }}" {% if status == order.status %}selected{% endif %}>{{ status }}</option>{% endfor %}</select><button class="btn btn-small">Update</button></form>
+  </div>
+  {% else %}<p>No customer orders yet.</p>{% endfor %}
+</section>
+{% endblock %}

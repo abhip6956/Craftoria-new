@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}Your cart | Craftoria.love{% endblock %}
+{% block content %}
+<section class="section narrow"><p class="eyebrow">YOUR SELECTION</p><h1>Your shopping cart</h1>
+{% if items %}
+  {% for item in items %}
+
+   {% if 'Ballerina' in item.product.name %}
+    {% set photo = 'photos/pic1.jpeg' %}
+  {% elif 'Flower Pot' in item.product.name %}
+    {% set photo = 'photos/pic2.jpeg' %}
+  {% elif 'Peacock' in item.product.name or 'Morpankh' in item.product.name %}
+    {% set photo = 'photos/pic4.jpeg' %}
+  {% elif item.product.id == 3 %}
+    {% set photo = 'photos/pic3.jpeg' %}
+  {% else %}
+    {% set photo = 'photos/' + item.product.image if item.product.image else 'photos/pic1.jpeg' %}
+  {% endif %}
+
+  <div class="cart-row">
+    <img src="{{ url_for('static', filename=photo) }}" alt="{{ item.product.name }}">
+    <div class="cart-desc"><h3>{{ item.product.name }}</h3><p>₹{{ "%.2f"|format(item.product.price) }} each</p>
+      <form class="quantity-form" method="post" action="{{ url_for('update_cart', product_id=item.product.id) }}">
+        <label>Qty <input type="number" name="quantity" min="0" max="99" value="{{ item.quantity }}"></label><button class="btn btn-small">Update</button>
+      </form>
+      <strong>Subtotal: ₹{{ "%.2f"|format(item.subtotal) }}</strong>
+    </div>
+  </div>
+  {% endfor %}
+  <div class="total-panel"><h2>Total: ₹{{ "%.2f"|format(total) }}</h2><a class="btn" href="{{ url_for('checkout') }}">Continue to checkout</a></div>
+{% else %}
+  <div class="empty"><h2>Your cart is waiting for something lovely.</h2><a class="btn" href="{{ url_for('products') }}">Explore products</a></div>
+{% endif %}
+</section>
+{% endblock %}

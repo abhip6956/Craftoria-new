@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}Shop | Craftoria.love{% endblock %}
+{% block content %}
+<section class="section">
+  <div class="section-head"><p class="eyebrow">THE COLLECTION</p><h1>Shop all creations</h1><p>Explore our growing collection of creative finds.</p></div>
+  <div class="product-grid">
+    {% for product in products %}
+    <article class="product-card">
+     <img src="{{ url_for('static', filename=product.image) }}" alt="{{ product.name }}">
+      <div class="product-info"><h3>{{ product.name }}</h3><p>{{ product.description }}</p><strong>₹{{ "%.2f"|format(product.price) }}</strong>
+      <form method="post" action="{{ url_for('add_to_cart', product_id=product.id) }}"><button class="btn btn-small">Add to cart</button></form></div>
+    </article>
+    {% else %}<p>No products are available right now.</p>{% endfor %}
+  </div>
+</section>
+{% endblock %}

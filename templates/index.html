@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+
+{% block title %}Craftoria.love | Handmade Crochet Gifts{% endblock %}
+
+{% block content %}
+
+<section class="hero">
+  <div class="hero-copy">
+    <p class="eyebrow">HANDMADE WITH LOVE · CROCHET WITH CARE</p>
+    <h1>Little stitches.<br><em>Beautiful creations.</em></h1>
+    <p>Discover beautiful handmade crochet flowers, cute gifts, adorable accessories and unique creations made with love.</p>
+    <a class="btn" href="{{ url_for('products') }}">Explore Crochet Collection</a>
+  </div>
+</section>
+
+<section class="section">
+  <div class="section-head">
+    <p class="eyebrow">MADE BY HAND · MADE WITH LOVE</p>
+    <h2>Our Crochet Collection</h2>
+    <p>Every stitch tells a beautiful story.</p>
+  </div>
+
+  <div class="product-grid">
+
+    {% for product in products %}
+
+    <article class="product-card">
+
+      <a href="{{ url_for('products') }}">
+        {% if product.image.startswith('http') %}
+          <img src="{{ product.image }}" alt="{{ product.name }}">
+        {% else %}
+          <img src="{{ url_for('static', filename=product.image) }}" alt="{{ product.name }}">
+        {% endif %}
+      </a>
+
+      <div class="product-info">
+        <h3>{{ product.name }}</h3>
+        <p>{{ product.description }}</p>
+
+        <strong>₹{{ "%.2f"|format(product.price) }}</strong>
+
+        <form method="post"
+          action="{{ url_for('add_to_cart', product_id=product.id) }}">
+          <button class="btn btn-small">Add to cart</button>
+        </form>
+      </div>
+
+    </article>
+
+    {% else %}
+      <p>No products yet. Please check back soon.</p>
+    {% endfor %}
+
+  </div>
+
+  <div class="center">
+    <a class="text-link" href="{{ url_for('products') }}">
+      View All Crochet Products →
+    </a>
+  </div>
+</section>
+
+<section class="story">
+  <p class="eyebrow">THE CRAFTORIA PROMISE</p>
+  <h2>Every stitch<br>made with love.</h2>
+  <p>From crochet flowers to adorable handmade gifts, we create little things that bring big smiles.</p>
+</section>
+
+{% endblock %}

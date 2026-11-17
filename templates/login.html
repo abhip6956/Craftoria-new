@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}Login | Craftoria.love{% endblock %}
+{% block content %}
+<section class="form-section"><form class="form-card" method="post">
+  <p class="eyebrow">WELCOME BACK</p><h1>Customer login</h1>
+  <label>Email address<input type="email" name="email" required autocomplete="email"></label>
+  <label>Password<input type="password" name="password" required autocomplete="current-password"></label>
+  <button class="btn" type="submit">Log in</button>
+  <p class="muted">New here? <a href="{{ url_for('register') }}">Create an account</a></p>
+</form></section>
+{% endblock %}

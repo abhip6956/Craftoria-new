@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block title %}My orders | Craftoria.love{% endblock %}
+{% block content %}
+<section class="section narrow"><p class="eyebrow">YOUR CRAFTORIA PURCHASES</p><h1>My orders</h1>
+{% for order in orders %}
+<div class="order-card"><div><strong>Order #{{ order.id }}</strong><p>{{ order.created_at }}</p></div><div><strong>₹{{ "%.2f"|format(order.total) }}</strong><p class="status">{{ order.status }}</p></div></div>
+{% else %}<div class="empty"><p>You have not placed an order yet.</p><a class="btn" href="{{ url_for('products') }}">Shop now</a></div>{% endfor %}
+</section>
+{% endblock %}
