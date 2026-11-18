@@ -1,12 +1,10 @@
 {% extends "base.html" %}
-{% block title %}Create account | Craftoria.love{% endblock %}
+{% block title %}Register | Craftoria.love{% endblock %}
 {% block content %}
 <section class="form-section"><form class="form-card" method="post">
-  <p class="eyebrow">JOIN OUR COMMUNITY</p><h1>Create your account</h1>
-  <label>Your name<input name="name" required maxlength="100" autocomplete="name"></label>
-  <label>Email address<input type="email" name="email" required autocomplete="email"></label>
-  <label>Password (at least 8 characters)<input type="password" name="password" required minlength="8" autocomplete="new-password"></label>
-  <button class="btn" type="submit">Create account</button>
-  <p class="muted">Already registered? <a href="{{ url_for('login') }}">Log in</a></p>
+  <p class="eyebrow">JOIN OUR COMMUNITY</p><h1>Continue with Mobile</h1>
+  <label>Your name<input name="name" placeholder="Enter your name" required maxlength="100" autocomplete="name"></label>
+  <label>Mobile number (10 digits)<input type="tel" name="phone" pattern="[0-9]{10}" maxlength="10" placeholder="Enter 10-digit mobile number" required autocomplete="tel"></label>
+  <button class="btn" type="submit">Continue</button>
 </form></section>
 {% endblock %}
