@@ -13,20 +13,32 @@ except ImportError:
 app = Flask(__name__)
 app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "change-this-secret-before-deployment")
 
-DATABASE_URL = os.environ.get("DATABASE_URL")
+# Vercel par permanent data rakhne ke liye Neon PostgreSQL ka DATABASE_URL use hoga
+DATABASE_URL = (
+    os.environ.get("DATABASE_URL")
+    or os.environ.get("POSTGRES_URL")
+    or os.environ.get("POSTGRES_PRISMA_URL")
+)
+
 default_db = "/tmp/craftoria.db" if os.environ.get("VERCEL") else "craftoria.db"
 DB_PATH = os.environ.get("DATABASE_PATH", default_db)
 
 MANAGER_ID = os.environ.get("MANAGER_ID", "admin")
 MANAGER_PASSWORD = os.environ.get("MANAGER_PASSWORD", "Craftoria@123")
 
+_db_initialized = False
+
 
 class DBWrapper:
-    """SQLite aur PostgreSQL dono ko support karta hai taaki Vercel par orders reset na hon"""
+    """SQLite aur PostgreSQL dono ko support karta hai taaki Vercel par orders permanent rahein"""
     def __init__(self):
         self.is_pg = bool(DATABASE_URL and psycopg2)
         if self.is_pg:
-            self.conn = psycopg2.connect(DATABASE_URL, cursor_factory=psycopg2.extras.RealDictCursor)
+            db_url = DATABASE_URL
+            if "sslmode=" not in db_url and "localhost" not in db_url and "127.0.0.1" not in db_url:
+                sep = "&" if "?" in db_url else "?"
+                db_url = f"{db_url}{sep}sslmode=require"
+            self.conn = psycopg2.connect(db_url, cursor_factory=psycopg2.extras.RealDictCursor)
         else:
             self.conn = sqlite3.connect(DB_PATH)
             self.conn.row_factory = sqlite3.Row
@@ -61,6 +73,9 @@ class DBWrapper:
 
 
 def db():
+    global _db_initialized
+    if not _db_initialized:
+        init_db()
     return DBWrapper()
 
 
@@ -77,7 +92,8 @@ def clean_image_path(image_path):
 
 
 def init_db():
-    connection = db()
+    global _db_initialized
+    connection = DBWrapper()
     id_col = "SERIAL PRIMARY KEY" if connection.is_pg else "INTEGER PRIMARY KEY AUTOINCREMENT"
     connection.execute(f"""
     CREATE TABLE IF NOT EXISTS users (
@@ -132,6 +148,7 @@ def init_db():
         )
     connection.commit()
     connection.close()
+    _db_initialized = True
 
 
 def customer_required(view):
@@ -155,7 +172,10 @@ def manager_required(view):
 
 @app.context_processor
 def common_context():
-    return {"cart_count": sum(session.get("cart", {}).values())}
+    return {
+        "cart_count": sum(session.get("cart", {}).values()),
+        "is_persistent_db": bool(DATABASE_URL and psycopg2),
+    }
 
 
 @app.route("/")
@@ -299,8 +319,8 @@ def checkout():
             flash("Please complete all delivery details.")
         else:
             cursor = connection.execute(
-                "INSERT INTO orders (user_id, customer_name, phone, address, total) VALUES (?, ?, ?, ?, ?)",
-                (session["user_id"], customer_name, phone, address, total)
+                "INSERT INTO orders (user_id, customer_name, phone, address, total, status) VALUES (?, ?, ?, ?, ?, ?)",
+                (session["user_id"], customer_name, phone, address, total, "Received")
             )
             order_id = cursor.lastrowid
             for product, quantity, subtotal in items:
@@ -324,8 +344,14 @@ def my_orders():
     orders = connection.execute(
         "SELECT * FROM orders WHERE user_id = ? ORDER BY id DESC", (session["user_id"],)
     ).fetchall()
+    order_items_rows = connection.execute("SELECT * FROM order_items").fetchall()
     connection.close()
-    return render_template("my_orders.html", orders=orders)
+
+    items_by_order = {}
+    for item in order_items_rows:
+        items_by_order.setdefault(item["order_id"], []).append(item)
+
+    return render_template("my_orders.html", orders=orders, items_by_order=items_by_order)
 
 
 @app.route("/manager-login", methods=["GET", "POST"])
@@ -346,7 +372,6 @@ def manager_login():
 def manager():
     connection = db()
     products = connection.execute("SELECT * FROM products ORDER BY id DESC").fetchall()
-    # Naya order sabse upar aayega aur saare orders (Completed bhi) dikhenge jab tak delete na hon
     orders = connection.execute("SELECT * FROM orders ORDER BY id DESC").fetchall()
     order_items_rows = connection.execute("SELECT * FROM order_items").fetchall()
     connection.close()
@@ -388,81 +413,4 @@ def add_product():
 def edit_product(product_id):
     connection = db()
     product = connection.execute("SELECT * FROM products WHERE id = ?", (product_id,)).fetchone()
-    if not product:
-        connection.close()
-        abort(404)
-    if request.method == "POST":
-        name = request.form.get("name", "").strip()
-        description = request.form.get("description", "").strip()
-        image = clean_image_path(request.form.get("image", ""))
-        try:
-            price = float(request.form.get("price", "0"))
-        except ValueError:
-            price = 0
-        if name and price > 0:
-            connection.execute(
-                "UPDATE products SET name=?, price=?, description=?, image=? WHERE id=?",
-                (name, price, description, image, product_id)
-            )
-            connection.commit()
-            connection.close()
-            flash("Product updated.")
-            return redirect(url_for("manager"))
-        flash("Enter a valid product name and price.")
-    connection.close()
-    return render_template("edit_product.html", product=product)
-
-
-@app.route("/manager/product/<int:product_id>/delete", methods=["POST"])
-@manager_required
-def delete_product(product_id):
-    connection = db()
-    connection.execute("DELETE FROM products WHERE id = ?", (product_id,))
-    connection.commit()
-    connection.close()
-    flash("Product deleted.")
-    return redirect(url_for("manager"))
-
-
-@app.route("/manager/order/<int:order_id>/status", methods=["POST"])
-@manager_required
-def update_order_status(order_id):
-    status = request.form.get("status", "Received")
-    allowed = {"Received", "Processing", "Shipped", "Completed", "Cancelled"}
-    if status not in allowed:
-        abort(400)
-    connection = db()
-    connection.execute("UPDATE orders SET status = ? WHERE id = ?", (status, order_id))
-    connection.commit()
-    connection.close()
-    flash("Order status updated.")
-    return redirect(url_for("manager"))
-
-
-@app.route("/manager/order/<int:order_id>/delete", methods=["POST"])
-@manager_required
-def delete_order(order_id):
-    connection = db()
-    connection.execute("DELETE FROM order_items WHERE order_id = ?", (order_id,))
-    connection.execute("DELETE FROM orders WHERE id = ?", (order_id,))
-    connection.commit()
-    connection.close()
-    flash("Order deleted.")
-    return redirect(url_for("manager"))
-
-
-@app.route("/manager-logout")
-def manager_logout():
-    session.pop("manager_logged_in", None)
-    return redirect(url_for("home"))
-
-
-@app.route("/health")
-def health():
-    return {"status": "ok"}
-
-
-init_db()
-
-if __name__ == "__main__":
-    app.run(debug=True)
+    if not product
