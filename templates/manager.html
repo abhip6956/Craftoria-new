@@ -24,8 +24,42 @@
   </div>
   <h2 class="subheading">Recent customer orders</h2>
   {% for order in orders %}
-  <div class="admin-row order-admin"><div><strong>Order #{{ order.id }} · {{ order.customer_name }}</strong><p>{{ order.phone }} · ₹{{ "%.2f"|format(order.total) }} · {{ order.created_at }}</p><p>{{ order.address }}</p></div>
-    <form method="post" action="{{ url_for('update_order_status', order_id=order.id) }}"><select name="status">{% for status in ['Received','Processing','Shipped','Completed','Cancelled'] %}<option value="{{ status }}" {% if status == order.status %}selected{% endif %}>{{ status }}</option>{% endfor %}</select><button class="btn btn-small">Update</button></form>
+  <div class="admin-row order-admin" style="align-items: flex-start;">
+    <div style="flex: 1;">
+      <strong>Order #{{ order.id }} · {{ order.customer_name }}</strong>
+      <p>{{ order.phone }} · ₹{{ "%.2f"|format(order.total) }} · {{ order.created_at }}</p>
+      <p>{{ order.address }}</p>
+
+      <div style="margin-top: 10px; padding-top: 8px; border-top: 1px solid #e6ddd3;">
+        <strong style="font-size: 0.9rem;">Ordered Items:</strong>
+        <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 6px;">
+          {% for item in items_by_order.get(order['id'], []) %}
+            <div style="display: flex; align-items: center; gap: 10px; background: #faf6f1; padding: 6px 10px; border-radius: 8px;">
+              {% if item['product_image'] %}
+                {% set img_src = item['product_image'] if item['product_image'].startswith('http') else url_for('static', filename=item['product_image']) %}
+                <img src="{{ img_src }}" alt="{{ item['product_name'] }}" style="width: 48px; height: 48px; object-fit: cover; border-radius: 6px;">
+              {% endif %}
+              <div>
+                <div style="font-weight: 600;">{{ item['product_name'] }}</div>
+                <div style="font-size: 0.88rem; color: #555;">Qty: {{ item['quantity'] }} &times; ₹{{ "%.2f"|format(item['price']) }} = <strong>₹{{ "%.2f"|format(item['price'] * item['quantity']) }}</strong></div>
+              </div>
+            </div>
+          {% else %}
+            <p style="color: #888; font-size: 0.88rem;">No item details found.</p>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+
+    <div class="admin-actions" style="flex-direction: column; align-items: flex-end; gap: 8px;">
+      <form method="post" action="{{ url_for('update_order_status', order_id=order.id) }}" style="display: flex; gap: 6px; align-items: center;">
+        <select name="status">{% for status in ['Received','Processing','Shipped','Completed','Cancelled'] %}<option value="{{ status }}" {% if status == order.status %}selected{% endif %}>{{ status }}</option>{% endfor %}</select>
+        <button class="btn btn-small">Update</button>
+      </form>
+      <form method="post" action="{{ url_for('delete_order', order_id=order.id) }}" onsubmit="return confirm('Delete this order?')">
+        <button class="danger-link">Delete order</button>
+      </form>
+    </div>
   </div>
   {% else %}<p>No customer orders yet.</p>{% endfor %}
 </section>

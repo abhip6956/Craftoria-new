@@ -349,8 +349,20 @@ def my_orders():
             "SELECT * FROM orders WHERE user_id = ? ORDER BY id DESC",
             (session["user_id"],)
         ).fetchall()
+
+    order_items_rows = connection.execute("""
+        SELECT oi.*, COALESCE(p.image, '') AS product_image
+        FROM order_items oi
+        LEFT JOIN products p ON oi.product_id = p.id
+    """).fetchall()
     connection.close()
-    return render_template("my_orders.html", orders=orders)
+
+    items_by_order = {}
+    for item in order_items_rows:
+        oid = item["order_id"]
+        items_by_order.setdefault(oid, []).append(item)
+
+    return render_template("my_orders.html", orders=orders, items_by_order=items_by_order)
 
 
 @app.route("/manager-login", methods=["GET", "POST"])
@@ -373,7 +385,11 @@ def manager():
     connection = db()
     products = connection.execute("SELECT * FROM products ORDER BY id DESC").fetchall()
     orders = connection.execute("SELECT * FROM orders ORDER BY id DESC").fetchall()
-    order_items_rows = connection.execute("SELECT * FROM order_items").fetchall()
+    order_items_rows = connection.execute("""
+        SELECT oi.*, COALESCE(p.image, '') AS product_image
+        FROM order_items oi
+        LEFT JOIN products p ON oi.product_id = p.id
+    """).fetchall()
     connection.close()
 
     items_by_order = {}
