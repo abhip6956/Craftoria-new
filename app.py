@@ -20,6 +20,11 @@ MANAGER_ID = os.environ.get("MANAGER_ID", "admin")
 MANAGER_PASSWORD = os.environ.get("MANAGER_PASSWORD", "Craftoria@123")
 
 
+class InsertResult:
+    def __init__(self, row_id):
+        self.lastrowid = row_id
+
+
 class DBWrapper:
     """SQLite aur PostgreSQL dono ko support karta hai aur crash hone se bachata hai"""
     def __init__(self):
@@ -43,8 +48,7 @@ class DBWrapper:
                 pg_query = pg_query.rstrip().rstrip(";") + " RETURNING id"
                 cur.execute(pg_query, params)
                 row = cur.fetchone()
-                cur.lastrowid = row["id"] if row else None
-                return cur
+                return InsertResult(row["id"] if row else None)
             cur.execute(pg_query, params)
             return cur
         return self.conn.execute(query, params)
