@@ -12,7 +12,7 @@ except ImportError:
 app = Flask(__name__)
 app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "change-this-secret-before-deployment")
 
-DATABASE_URL = os.environ.get("DATABASE_URL")
+DATABASE_URL = (os.environ.get("DATABASE_URL") or "").strip()
 default_db = "/tmp/craftoria.db" if os.environ.get("VERCEL") else "craftoria.db"
 DB_PATH = os.environ.get("DATABASE_PATH", default_db)
 
@@ -21,14 +21,19 @@ MANAGER_PASSWORD = os.environ.get("MANAGER_PASSWORD", "Craftoria@123")
 
 
 class DBWrapper:
-    """SQLite aur PostgreSQL dono ko support karta hai"""
+    """SQLite aur PostgreSQL dono ko support karta hai aur crash hone se bachata hai"""
     def __init__(self):
-        self.is_pg = bool(DATABASE_URL and psycopg2)
-        if self.is_pg:
-            self.conn = psycopg2.connect(DATABASE_URL, cursor_factory=psycopg2.extras.RealDictCursor)
-        else:
-            self.conn = sqlite3.connect(DB_PATH)
-            self.conn.row_factory = sqlite3.Row
+        self.is_pg = False
+        if DATABASE_URL and psycopg2 and "xxxxxxxx" not in DATABASE_URL:
+            try:
+                self.conn = psycopg2.connect(DATABASE_URL, cursor_factory=psycopg2.extras.RealDictCursor)
+                self.is_pg = True
+                return
+            except Exception as e:
+                print("Postgres connection failed, falling back to SQLite:", e)
+
+        self.conn = sqlite3.connect(DB_PATH)
+        self.conn.row_factory = sqlite3.Row
 
     def execute(self, query, params=()):
         if self.is_pg:
@@ -158,6 +163,7 @@ def common_context():
 
 @app.route("/")
 def home():
+    init_db()
     connection = db()
     products = connection.execute("SELECT * FROM products ORDER BY id DESC LIMIT 4").fetchall()
     connection.close()
@@ -166,87 +172,59 @@ def home():
 
 @app.route("/products")
 def products():
+    init_db()
     connection = db()
     items = connection.execute("SELECT * FROM products ORDER BY id DESC").fetchall()
     connection.close()
     return render_template("products.html", products=items)
 
 
-@app.route("/register", methods=["GET", "POST"])
-def register():
+def handle_mobile_auth(template_name):
     if request.method == "POST":
         name = request.form.get("name", "").strip()
         phone = "".join(filter(str.isdigit, request.form.get("phone", "")))
         if not name or len(phone) != 10:
             flash("Please enter your name and a valid 10-digit mobile number.")
-            return render_template("register.html")
+            return render_template(template_name)
 
+        init_db()
         connection = db()
-        user = connection.execute("SELECT * FROM customers WHERE phone = ?", (phone,)).fetchone()
-        if user:
-            connection.execute("UPDATE customers SET name = ? WHERE id = ?", (name, user["id"]))
+        try:
+            user = connection.execute("SELECT * FROM customers WHERE phone = ?", (phone,)).fetchone()
+            if user:
+                connection.execute("UPDATE customers SET name = ? WHERE id = ?", (name, user["id"]))
+                connection.commit()
+                session["user_id"] = user["id"]
+                session["user_name"] = name
+                session["user_phone"] = phone
+                flash("Welcome back!")
+                return redirect(request.args.get("next") or url_for("home"))
+
+            cursor = connection.execute(
+                "INSERT INTO customers (name, phone) VALUES (?, ?)",
+                (name, phone)
+            )
             connection.commit()
-            session["user_id"] = user["id"]
+            session["user_id"] = cursor.lastrowid
             session["user_name"] = name
             session["user_phone"] = phone
-            connection.close()
-            flash("Welcome back!")
+            flash("Logged in successfully!")
             return redirect(request.args.get("next") or url_for("home"))
+        except Exception as e:
+            flash(f"Login error: {e}")
+        finally:
+            connection.close()
+    return render_template(template_name)
 
-        cursor = connection.execute(
-            "INSERT INTO customers (name, phone) VALUES (?, ?)",
-            (name, phone)
-        )
-        connection.commit()
-        session["user_id"] = cursor.lastrowid
-        session["user_name"] = name
-        session["user_phone"] = phone
-        connection.close()
-        flash("Account ready! Welcome to Craftoria.love.")
-        return redirect(request.args.get("next") or url_for("home"))
-    return render_template("register.html")
+
+@app.route("/register", methods=["GET", "POST"])
+def register():
+    return handle_mobile_auth("register.html")
 
 
 @app.route("/login", methods=["GET", "POST"])
 def login():
-    if request.method == "POST":
-        name = request.form.get("name", "").strip()
-        phone = "".join(filter(str.isdigit, request.form.get("phone", "")))
-        if len(phone) != 10:
-            flash("Please enter a valid 10-digit mobile number.")
-            return render_template("login.html")
-
-        connection = db()
-        user = connection.execute("SELECT * FROM customers WHERE phone = ?", (phone,)).fetchone()
-        if user:
-            final_name = name or user["name"]
-            if name and name != user["name"]:
-                connection.execute("UPDATE customers SET name = ? WHERE id = ?", (name, user["id"]))
-                connection.commit()
-            session["user_id"] = user["id"]
-            session["user_name"] = final_name
-            session["user_phone"] = phone
-            connection.close()
-            flash("Logged in successfully!")
-            return redirect(request.args.get("next") or url_for("home"))
-
-        if not name:
-            connection.close()
-            flash("New number! Please enter your name as well to continue.")
-            return render_template("login.html")
-
-        cursor = connection.execute(
-            "INSERT INTO customers (name, phone) VALUES (?, ?)",
-            (name, phone)
-        )
-        connection.commit()
-        session["user_id"] = cursor.lastrowid
-        session["user_name"] = name
-        session["user_phone"] = phone
-        connection.close()
-        flash("Logged in successfully!")
-        return redirect(request.args.get("next") or url_for("home"))
-    return render_template("login.html")
+    return handle_mobile_auth("login.html")
 
 
 @app.route("/logout")
@@ -260,6 +238,7 @@ def logout():
 
 @app.route("/add-to-cart/<int:product_id>", methods=["POST"])
 def add_to_cart(product_id):
+    init_db()
     connection = db()
     product = connection.execute("SELECT id FROM products WHERE id = ?", (product_id,)).fetchone()
     connection.close()
@@ -275,6 +254,7 @@ def add_to_cart(product_id):
 
 @app.route("/cart")
 def cart():
+    init_db()
     cart = session.get("cart", {})
     items, total = [], 0
     connection = db()
@@ -306,6 +286,7 @@ def update_cart(product_id):
 @app.route("/checkout", methods=["GET", "POST"])
 @customer_required
 def checkout():
+    init_db()
     cart_data = session.get("cart", {})
     if not cart_data:
         flash("Your cart is empty.")
@@ -351,6 +332,7 @@ def checkout():
 @app.route("/my-orders")
 @customer_required
 def my_orders():
+    init_db()
     connection = db()
     phone = session.get("user_phone", "")
     if phone:
@@ -383,6 +365,7 @@ def manager_login():
 @app.route("/manager")
 @manager_required
 def manager():
+    init_db()
     connection = db()
     products = connection.execute("SELECT * FROM products ORDER BY id DESC").fetchall()
     orders = connection.execute("SELECT * FROM orders ORDER BY id DESC").fetchall()
@@ -400,6 +383,7 @@ def manager():
 @app.route("/manager/product/add", methods=["POST"])
 @manager_required
 def add_product():
+    init_db()
     name = request.form.get("name", "").strip()
     description = request.form.get("description", "").strip()
     image = clean_image_path(request.form.get("image", ""))
@@ -424,6 +408,7 @@ def add_product():
 @app.route("/manager/product/<int:product_id>/edit", methods=["GET", "POST"])
 @manager_required
 def edit_product(product_id):
+    init_db()
     connection = db()
     product = connection.execute("SELECT * FROM products WHERE id = ?", (product_id,)).fetchone()
     if not product:
@@ -454,6 +439,7 @@ def edit_product(product_id):
 @app.route("/manager/product/<int:product_id>/delete", methods=["POST"])
 @manager_required
 def delete_product(product_id):
+    init_db()
     connection = db()
     connection.execute("DELETE FROM products WHERE id = ?", (product_id,))
     connection.commit()
@@ -465,6 +451,7 @@ def delete_product(product_id):
 @app.route("/manager/order/<int:order_id>/status", methods=["POST"])
 @manager_required
 def update_order_status(order_id):
+    init_db()
     status = request.form.get("status", "Received")
     allowed = {"Received", "Processing", "Shipped", "Completed", "Cancelled"}
     if status not in allowed:
@@ -480,6 +467,7 @@ def update_order_status(order_id):
 @app.route("/manager/order/<int:order_id>/delete", methods=["POST"])
 @manager_required
 def delete_order(order_id):
+    init_db()
     connection = db()
     connection.execute("DELETE FROM order_items WHERE order_id = ?", (order_id,))
     connection.execute("DELETE FROM orders WHERE id = ?", (order_id,))
