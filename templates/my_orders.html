@@ -3,7 +3,38 @@
 {% block content %}
 <section class="section narrow"><p class="eyebrow">YOUR CRAFTORIA PURCHASES</p><h1>My orders</h1>
 {% for order in orders %}
-<div class="order-card"><div><strong>Order #{{ order.id }}</strong><p>{{ order.created_at }}</p></div><div><strong>₹{{ "%.2f"|format(order.total) }}</strong><p class="status">{{ order.status }}</p></div></div>
+<div class="order-card" style="flex-direction: column; align-items: stretch; gap: 12px;">
+  <div style="display: flex; justify-content: space-between; align-items: center;">
+    <div>
+      <strong>Order #{{ order.id }}</strong>
+      <p>{{ order.created_at }}</p>
+    </div>
+    <div style="text-align: right;">
+      <strong>₹{{ "%.2f"|format(order.total) }}</strong>
+      <p class="status">{{ order.status }}</p>
+    </div>
+  </div>
+
+  <div style="padding-top: 10px; border-top: 1px solid #e6ddd3;">
+    <strong style="font-size: 0.9rem;">Items in this order:</strong>
+    <div style="display: flex; flex-direction: column; gap: 8px; margin-top: 8px;">
+      {% for item in items_by_order.get(order['id'], []) %}
+        <div style="display: flex; align-items: center; gap: 10px; background: #faf6f1; padding: 6px 10px; border-radius: 8px;">
+          {% if item['product_image'] %}
+            {% set img_src = item['product_image'] if item['product_image'].startswith('http') else url_for('static', filename=item['product_image']) %}
+            <img src="{{ img_src }}" alt="{{ item['product_name'] }}" style="width: 48px; height: 48px; object-fit: cover; border-radius: 6px;">
+          {% endif %}
+          <div>
+            <div style="font-weight: 600;">{{ item['product_name'] }}</div>
+            <div style="font-size: 0.88rem; color: #555;">Qty: {{ item['quantity'] }} &times; ₹{{ "%.2f"|format(item['price']) }} = <strong>₹{{ "%.2f"|format(item['price'] * item['quantity']) }}</strong></div>
+          </div>
+        </div>
+      {% else %}
+        <p style="color: #888; font-size: 0.88rem;">No item details found.</p>
+      {% endfor %}
+    </div>
+  </div>
+</div>
 {% else %}<div class="empty"><p>You have not placed an order yet.</p><a class="btn" href="{{ url_for('products') }}">Shop now</a></div>{% endfor %}
 </section>
 {% endblock %}
