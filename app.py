@@ -1,7 +1,6 @@
 import os
 import sqlite3
 from functools import wraps
-from werkzeug.security import generate_password_hash, check_password_hash
 from flask import Flask, render_template, request, redirect, url_for, session, flash, abort
 
 try:
@@ -22,7 +21,7 @@ MANAGER_PASSWORD = os.environ.get("MANAGER_PASSWORD", "Craftoria@123")
 
 
 class DBWrapper:
-    """SQLite aur PostgreSQL dono ko support karta hai taaki Vercel par accounts aur orders reset na hon"""
+    """SQLite aur PostgreSQL dono ko support karta hai"""
     def __init__(self):
         self.is_pg = bool(DATABASE_URL and psycopg2)
         if self.is_pg:
@@ -80,11 +79,10 @@ def init_db():
     connection = db()
     id_col = "SERIAL PRIMARY KEY" if connection.is_pg else "INTEGER PRIMARY KEY AUTOINCREMENT"
     connection.execute(f"""
-    CREATE TABLE IF NOT EXISTS users (
+    CREATE TABLE IF NOT EXISTS customers (
         id {id_col},
         name TEXT NOT NULL,
-        email TEXT NOT NULL UNIQUE,
-        password_hash TEXT NOT NULL
+        phone TEXT NOT NULL UNIQUE
     )
     """)
     connection.execute(f"""
@@ -138,7 +136,7 @@ def customer_required(view):
     @wraps(view)
     def wrapped(*args, **kwargs):
         if not session.get("user_id"):
-            flash("Please log in to continue.")
+            flash("Please enter your name and mobile number to continue.")
             return redirect(url_for("login", next=request.path))
         return view(*args, **kwargs)
     return wrapped
@@ -178,90 +176,84 @@ def products():
 def register():
     if request.method == "POST":
         name = request.form.get("name", "").strip()
-        email = request.form.get("email", "").strip().lower()
-        password = request.form.get("password", "").strip()
-        if not name or not email or len(password) < 6:
-            flash("Enter your name, a valid email and a password of at least 6 characters.")
+        phone = "".join(filter(str.isdigit, request.form.get("phone", "")))
+        if not name or len(phone) != 10:
+            flash("Please enter your name and a valid 10-digit mobile number.")
             return render_template("register.html")
-        connection = db()
-        try:
-            existing = connection.execute(
-                "SELECT id FROM users WHERE LOWER(TRIM(email)) = ?", (email,)
-            ).fetchone()
-            if existing:
-                flash("This email is already registered. Please log in.")
-                return render_template("register.html")
 
-            cursor = connection.execute(
-                "INSERT INTO users (name, email, password_hash) VALUES (?, ?, ?)",
-                (name, email, generate_password_hash(password))
-            )
+        connection = db()
+        user = connection.execute("SELECT * FROM customers WHERE phone = ?", (phone,)).fetchone()
+        if user:
+            connection.execute("UPDATE customers SET name = ? WHERE id = ?", (name, user["id"]))
             connection.commit()
-            session["user_id"] = cursor.lastrowid
+            session["user_id"] = user["id"]
             session["user_name"] = name
-            session["cart"] = session.get("cart", {})
-            flash("Account created successfully.")
-            return redirect(url_for("home"))
-        except Exception as e:
-            flash(f"Registration error: {e}")
-        finally:
+            session["user_phone"] = phone
             connection.close()
+            flash("Welcome back!")
+            return redirect(request.args.get("next") or url_for("home"))
+
+        cursor = connection.execute(
+            "INSERT INTO customers (name, phone) VALUES (?, ?)",
+            (name, phone)
+        )
+        connection.commit()
+        session["user_id"] = cursor.lastrowid
+        session["user_name"] = name
+        session["user_phone"] = phone
+        connection.close()
+        flash("Account ready! Welcome to Craftoria.love.")
+        return redirect(request.args.get("next") or url_for("home"))
     return render_template("register.html")
 
 
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
-        email = request.form.get("email", "").strip().lower()
-        password = request.form.get("password", "").strip()
-        connection = db()
-        user = connection.execute("SELECT * FROM users WHERE LOWER(TRIM(email)) = ?", (email,)).fetchone()
-        connection.close()
-        if user and check_password_hash(user["password_hash"], password):
-            session["user_id"] = user["id"]
-            session["user_name"] = user["name"]
-            flash("Welcome back!")
-            return redirect(request.args.get("next") or url_for("home"))
-        flash("Incorrect email or password.")
-    return render_template("login.html")
-
-
-@app.route("/forgot-password", methods=["GET", "POST"])
-def forgot_password():
-    if request.method == "POST":
         name = request.form.get("name", "").strip()
-        email = request.form.get("email", "").strip().lower()
-        new_password = request.form.get("new_password", "").strip()
-
-        if not name or not email or len(new_password) < 6:
-            flash("Enter your registered name, email, and a new password (min 6 characters).")
-            return render_template("forgot_password.html")
+        phone = "".join(filter(str.isdigit, request.form.get("phone", "")))
+        if len(phone) != 10:
+            flash("Please enter a valid 10-digit mobile number.")
+            return render_template("login.html")
 
         connection = db()
-        user = connection.execute(
-            "SELECT * FROM users WHERE LOWER(TRIM(email)) = ? AND LOWER(TRIM(name)) = LOWER(?)",
-            (email, name)
-        ).fetchone()
-
+        user = connection.execute("SELECT * FROM customers WHERE phone = ?", (phone,)).fetchone()
         if user:
-            connection.execute(
-                "UPDATE users SET password_hash = ? WHERE id = ?",
-                (generate_password_hash(new_password), user["id"])
-            )
-            connection.commit()
+            final_name = name or user["name"]
+            if name and name != user["name"]:
+                connection.execute("UPDATE customers SET name = ? WHERE id = ?", (name, user["id"]))
+                connection.commit()
+            session["user_id"] = user["id"]
+            session["user_name"] = final_name
+            session["user_phone"] = phone
             connection.close()
-            flash("Password reset successful! Please log in with your new password.")
-            return redirect(url_for("login"))
+            flash("Logged in successfully!")
+            return redirect(request.args.get("next") or url_for("home"))
 
+        if not name:
+            connection.close()
+            flash("New number! Please enter your name as well to continue.")
+            return render_template("login.html")
+
+        cursor = connection.execute(
+            "INSERT INTO customers (name, phone) VALUES (?, ?)",
+            (name, phone)
+        )
+        connection.commit()
+        session["user_id"] = cursor.lastrowid
+        session["user_name"] = name
+        session["user_phone"] = phone
         connection.close()
-        flash("Name and email do not match our records.")
-    return render_template("forgot_password.html")
+        flash("Logged in successfully!")
+        return redirect(request.args.get("next") or url_for("home"))
+    return render_template("login.html")
 
 
 @app.route("/logout")
 def logout():
     session.pop("user_id", None)
     session.pop("user_name", None)
+    session.pop("user_phone", None)
     flash("You have been logged out.")
     return redirect(url_for("home"))
 
@@ -332,10 +324,10 @@ def checkout():
         return redirect(url_for("cart"))
     if request.method == "POST":
         customer_name = request.form.get("customer_name", "").strip()
-        phone = request.form.get("phone", "").strip()
+        phone = "".join(filter(str.isdigit, request.form.get("phone", "")))
         address = request.form.get("address", "").strip()
-        if not customer_name or not phone or not address:
-            flash("Please complete all delivery details.")
+        if not customer_name or len(phone) != 10 or not address:
+            flash("Please complete your name, 10-digit mobile number, and address.")
         else:
             cursor = connection.execute(
                 "INSERT INTO orders (user_id, customer_name, phone, address, total) VALUES (?, ?, ?, ?, ?)",
@@ -360,9 +352,17 @@ def checkout():
 @customer_required
 def my_orders():
     connection = db()
-    orders = connection.execute(
-        "SELECT * FROM orders WHERE user_id = ? ORDER BY id DESC", (session["user_id"],)
-    ).fetchall()
+    phone = session.get("user_phone", "")
+    if phone:
+        orders = connection.execute(
+            "SELECT * FROM orders WHERE user_id = ? OR phone = ? ORDER BY id DESC",
+            (session["user_id"], phone)
+        ).fetchall()
+    else:
+        orders = connection.execute(
+            "SELECT * FROM orders WHERE user_id = ? ORDER BY id DESC",
+            (session["user_id"],)
+        ).fetchall()
     connection.close()
     return render_template("my_orders.html", orders=orders)
 
